@@ -60,7 +60,7 @@ if __name__ == "__main__":
     renWin.AddRenderer(ren)
 
     reader = vtk.vtkOBJReader()
-    reader.SetFileName("data/cow.obj")
+    reader.SetFileName("data/cow_mesh/cow.obj")
     reader.Update()
     trg_poly = reader.GetOutput()
     trg_actor = make_actor(trg_poly)

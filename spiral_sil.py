@@ -7,6 +7,9 @@ from utils import polydata2mesh, mesh2polydata, make_actor
 from pytorch3d.utils import ico_sphere
 import numpy as np
 from tqdm import tqdm
+from utils.mesh_sampling import generate_transform
+from utils import sparse
+from network.spiralnetp import Decoder
 
 # Util function for loading meshes
 from pytorch3d.io import load_objs_as_meshes, save_obj
@@ -61,6 +64,35 @@ def initialize_silhouette_renderer():
     )
 
     return renderer_silhouette
+
+def initialize_model(polydata):    
+
+    downsample = [4,4,4,4]
+    seq_length = [9,9,9,9]
+    dilation = [1,1,1,1]
+    in_channels = 3
+    out_channels = [32,32,32,64]
+    latent_channels=64
+
+
+    transform = generate_transform(polydata, downsample)
+    spiral_indices_list = [
+        sparse.preprocess_spiral(transform['face'][idx], seq_length[idx], 
+                                transform['vertices'][idx], dilation[idx]).to(device)
+        for idx in range(len(transform['face']) - 1)
+    ]
+    down_transform_list = [
+        sparse.to_sparse(down_transform, device)
+        for down_transform in transform['down_transform']
+    ]
+    up_transform_list = [
+        sparse.to_sparse(up_transform, device)
+        for up_transform in transform['up_transform']
+    ]
+
+    model = Decoder(in_channels, out_channels, latent_channels, spiral_indices_list, up_transform_list).to(device)
+
+    return model
 
 
 if __name__ == "__main__":
@@ -126,13 +158,18 @@ if __name__ == "__main__":
     target_actor = make_actor(target_polydata)
     target_actor.GetProperty().SetOpacity(0.2)
     ren.AddActor(target_actor)
+    
+    template_target_actor = make_actor(target_polydata)
+    template_target_actor.SetPosition(1, 0, 0)
+    ren.AddActor(template_target_actor)
+
 
 
     ### Run Trianing
     src_polydata = mesh2polydata(src_mesh)
     src_polydata.GetPointData().RemoveArray("Normals")
     src_actor = make_actor(src_polydata)
-    src_actor.GetProperty().SetColor(0.5, 0.2, 0.2)
+    src_actor.GetProperty().SetColor(0.2, 0.5, 0.2)
 
     ren.AddActor(src_actor)
     ren.ResetCamera()
@@ -154,11 +191,14 @@ if __name__ == "__main__":
     
 
     # Direct vertices optimization
-    verts_shape = src_mesh.verts_packed().shape
-    deform_verts = torch.full(verts_shape, 0.0, device=device, requires_grad=True)
+    # verts_shape = src_mesh.verts_packed().shape
+    # deform_verts = torch.full(verts_shape, 0.0, device=device, requires_grad=True)
+    sample_input = torch.randn([1,64]).to(device)
+    model = initialize_model(src_polydata).to(device)
+    model.train()
 
     # The optimizer
-    optimizer = torch.optim.SGD([deform_verts], lr=1.0, momentum=0.9)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9)
 
     loop = tqdm(range(Niter))
 
@@ -171,7 +211,8 @@ if __name__ == "__main__":
         optimizer.zero_grad()
         
         # Deform the mesh
-        new_src_mesh = src_mesh.offset_verts(deform_verts)
+        pred = model(sample_input) * 0.01
+        new_src_mesh = src_mesh.offset_verts(pred[0])
         
         # Losses to smooth /regularize the mesh shape
         loss_edge = mesh_edge_loss(new_src_mesh)    * w_edge   
@@ -181,8 +222,8 @@ if __name__ == "__main__":
 
         # Silhouette Renderer
         loss_silhouette = torch.tensor(0.0, device=device)
-        for j in np.random.permutation(num_views).tolist()[:1]:
-            j = 0
+        for j in np.random.permutation(num_views).tolist()[:5]:
+            # j = 0
             # Differentiable Render            
             images_predicted = silhouette_renderer(new_src_mesh, cameras=cameras[j]) 
             predicted_silhouette = images_predicted[..., 3] # only 4th channels is meaningful
