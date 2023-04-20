@@ -19,29 +19,32 @@ def polydata2mesh(polydata):
     textures = TexturesVertex(verts_features=verts_rgb)
 
     mesh = Meshes(verts=[verts], faces=[faces], textures=textures)
-
-    # Normalize MEsh
-    verts = mesh.verts_packed()
-    N = verts.shape[0]
-    center = verts.mean(0)
-    scale = max((verts - center).abs().max(0)[0])
-    mesh.offset_verts_(-center)
-    mesh.scale_verts_((1.0 / float(scale)));
     
     return mesh
 
 def mesh2polydata(mesh):
-    verts = mesh.verts_packed().detach().cpu().numpy()
-    faces = mesh.faces_packed().detach().cpu().numpy()
-
-    polydata = vtk.vtkPolyData()
-    polydata.SetPoints( vtk.vtkPoints() )
-    polydata.GetPoints().SetData(numpy_support.numpy_to_vtk(verts))
     
-    polydata.SetPolys( vtk.vtkCellArray() )
-    polydata.GetPolys().SetData(3, numpy_support.numpy_to_vtk(faces.ravel()) )
+    polydata = vtk.vtkPolyData()
+    
+    # set vertices
+    verts = numpy_support.numpy_to_vtk(mesh.verts_packed().detach().cpu().numpy())
+    polydata.SetPoints( vtk.vtkPoints() )
+    polydata.GetPoints().SetData(verts)
 
-    return polydata
+    faces = numpy_support.numpy_to_vtk(mesh.faces_packed().detach().cpu().numpy().ravel())
+    polydata.SetPolys( vtk.vtkCellArray() )
+    polydata.GetPolys().SetData(3, faces )
+
+    # set normals if exists
+    normals = numpy_support.numpy_to_vtk(mesh.verts_normals_packed().detach().cpu().numpy())    
+    normals.SetName("Normals")
+    polydata.GetPointData().SetNormals(normals)
+
+    # without this, face information gets corrupted
+    results = vtk.vtkPolyData()
+    results.DeepCopy(polydata)
+
+    return results
 
 def make_actor(polydata):
     mapper = vtk.vtkPolyDataMapper()
