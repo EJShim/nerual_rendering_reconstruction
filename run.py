@@ -23,6 +23,7 @@ from pytorch3d.structures import Meshes
 from pytorch3d.renderer import (
     look_at_view_transform,
     FoVPerspectiveCameras, 
+    FoVOrthographicCameras,
     PointLights, 
     DirectionalLights, 
     Materials, 
@@ -34,8 +35,8 @@ from pytorch3d.renderer import (
     SoftPhongShader,
     TexturesVertex
 )
-from plot_image_grid import image_grid
 
+from renderers import initialize_depthmap_renderer, initialize_silhouette_renderer
 
 # Setup
 if torch.cuda.is_available():
@@ -45,23 +46,6 @@ else:
     device = torch.device("cpu")
 
 
-def initialize_silhouette_renderer():
-    # Rasterization settings for silhouette rendering  
-    sigma = 1e-4
-    raster_settings_silhouette = RasterizationSettings(
-        image_size=256, 
-        blur_radius=np.log(1. / 1e-4 - 1.)*sigma, 
-        faces_per_pixel=50, 
-    )
-
-    # Silhouette renderer 
-    renderer_silhouette = MeshRenderer(
-        rasterizer=MeshRasterizer(raster_settings=raster_settings_silhouette),
-        shader=SoftSilhouetteShader()
-    )
-
-    return renderer_silhouette
-
 
 if __name__ == "__main__":
     # Set paths
@@ -69,34 +53,46 @@ if __name__ == "__main__":
     obj_filename = os.path.join(DATA_DIR, "cow_mesh/cow.obj")
 
     # Load obj file
-    mesh = load_objs_as_meshes([obj_filename], device=device)
+    reader = vtk.vtkOBJReader()
+    reader.SetFileName(obj_filename)
+    reader.Update()
+
+    trg_polydata = reader.GetOutput()
+
+    trg_mesh = polydata2mesh(trg_polydata).to(device)
 
     # Normalize Mesh
-    verts = mesh.verts_packed()
+    verts = trg_mesh.verts_packed()
     N = verts.shape[0]
     center = verts.mean(0)
     scale = max((verts - center).abs().max(0)[0])
-    mesh.offset_verts_(-center)
-    mesh.scale_verts_((1.0 / float(scale)));
+    trg_mesh.offset_verts_(-center)
+    trg_mesh.scale_verts_((1.0 / float(scale)))
 
 
 
     # the number of different viewpoints from which we want to render the mesh.
 
     # Initialize Cameras
-    num_views = 20
+    num_views = 1
     elev = torch.linspace(0, 360, num_views)
     azim = torch.linspace(-180, 180, num_views)
-    R, T = look_at_view_transform(dist=2.7, elev=elev, azim=azim)
-    cameras = FoVPerspectiveCameras(device=device, R=R, T=T)
+    R, T = look_at_view_transform(dist=2.0, elev=elev, azim=azim)
+    cameras = FoVOrthographicCameras(device=device,
+                                        znear=1.0,
+                                        zfar=3.0,
+                                        R=R,
+                                        T=T
+                                    )
+
 
     # differentiable renderer
-    silhouette_renderer = initialize_silhouette_renderer()
+    renderer = initialize_depthmap_renderer()
 
-    # Render Silhouette image, light needed???
-    meshes = mesh.extend(num_views)
-    silhouette_images = silhouette_renderer(meshes, cameras=cameras)
-    silhouette_images = silhouette_images[...,3]
+    # Render Silhouette image, light needed???    
+    meshes = trg_mesh.extend(num_views)    
+    silhouette_images = renderer(meshes, cameras=cameras)
+    # silhouette_images = silhouette_images[...,0]
 
 
     sample_image = silhouette_images[0].detach().cpu().numpy()
@@ -104,7 +100,9 @@ if __name__ == "__main__":
     cv2.namedWindow('output', cv2.WINDOW_NORMAL)
 
     cv2.imshow("output", sample_image)
-    cv2.waitKey(1)
+    cv2.waitKey(0)
+    
+    
     
     # We initialize the source shape to be a sphere of radius 1.  
     src_mesh = ico_sphere(4, device)
@@ -122,8 +120,8 @@ if __name__ == "__main__":
     renWin.AddRenderer(ren)
 
     # Render TArget
-    target_polydata = mesh2polydata(mesh)
-    target_actor = make_actor(target_polydata)
+    # target_polydata = mesh2polydata(trg_mesh)
+    target_actor = make_actor(trg_polydata)
     target_actor.GetProperty().SetOpacity(0.2)
     ren.AddActor(target_actor)
 
@@ -156,6 +154,7 @@ if __name__ == "__main__":
     # Direct vertices optimization
     verts_shape = src_mesh.verts_packed().shape
     deform_verts = torch.full(verts_shape, 0.0, device=device, requires_grad=True)
+    sphere_verts_rgb = torch.full([1, verts_shape[0], 3], 0.5, device=device, requires_grad=True)
 
     # The optimizer
     optimizer = torch.optim.SGD([deform_verts], lr=1.0, momentum=0.9)
@@ -172,7 +171,8 @@ if __name__ == "__main__":
         
         # Deform the mesh
         new_src_mesh = src_mesh.offset_verts(deform_verts)
-        
+        new_src_mesh.textures = TexturesVertex(verts_features=sphere_verts_rgb) 
+
         # Losses to smooth /regularize the mesh shape
         loss_edge = mesh_edge_loss(new_src_mesh)    * w_edge   
         loss_normal = mesh_normal_consistency(new_src_mesh)  * w_normal       
@@ -183,9 +183,10 @@ if __name__ == "__main__":
         loss_silhouette = torch.tensor(0.0, device=device)
         for j in np.random.permutation(num_views).tolist()[:1]:
             j = 0
+            
             # Differentiable Render            
-            images_predicted = silhouette_renderer(new_src_mesh, cameras=cameras[j]) 
-            predicted_silhouette = images_predicted[..., 3] # only 4th channels is meaningful
+            images_predicted = renderer(new_src_mesh, cameras=cameras[j])
+            predicted_silhouette = images_predicted # only 4th channels is meaningful
             
             l_s = ((predicted_silhouette - silhouette_images[j]) ** 2).mean()
             loss_silhouette += l_s / num_views_per_iteration * w_silhoutte
