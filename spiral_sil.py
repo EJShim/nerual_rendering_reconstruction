@@ -160,7 +160,7 @@ if __name__ == "__main__":
     ren.AddActor(target_actor)
     
     template_target_actor = make_actor(target_polydata)
-    template_target_actor.SetPosition(1, 0, 0)
+    template_target_actor.SetPosition(1.2, 0, 0)
     ren.AddActor(template_target_actor)
 
 
