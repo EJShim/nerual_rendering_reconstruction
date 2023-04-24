@@ -10,34 +10,18 @@ from tqdm import tqdm
 from utils.mesh_sampling import generate_transform
 from utils import sparse
 from network.spiralnetp import Decoder
-
-# Util function for loading meshes
-from pytorch3d.io import load_objs_as_meshes, save_obj
-
 from pytorch3d.loss import (
-    chamfer_distance, 
     mesh_edge_loss, 
     mesh_laplacian_smoothing, 
     mesh_normal_consistency,
 )
 
-# Data structures and functions for rendering
-from pytorch3d.structures import Meshes
 from pytorch3d.renderer import (
     look_at_view_transform,
     FoVPerspectiveCameras, 
-    FoVOrthographicCameras,
-    PointLights, 
-    DirectionalLights, 
-    Materials, 
-    RasterizationSettings, 
-    MeshRenderer, 
-    MeshRasterizer,  
-    SoftPhongShader,
-    SoftSilhouetteShader,
-    SoftPhongShader,
-    TexturesVertex
+    FoVOrthographicCameras
 )
+from renderers import initialize_depthmap_renderer, initialize_silhouette_renderer
 import argparse
 from pathlib import Path
 
@@ -49,23 +33,6 @@ else:
     device = torch.device("cpu")
 
 
-
-def initialize_silhouette_renderer():
-    # Rasterization settings for silhouette rendering  
-    sigma = 1e-4
-    raster_settings_silhouette = RasterizationSettings(
-        image_size=256, 
-        blur_radius=np.log(1. / 1e-4 - 1.)*sigma, 
-        faces_per_pixel=50, 
-    )
-
-    # Silhouette renderer 
-    renderer_silhouette = MeshRenderer(
-        rasterizer=MeshRasterizer(raster_settings=raster_settings_silhouette),
-        shader=SoftSilhouetteShader()
-    )
-
-    return renderer_silhouette
 
 def initialize_model(polydata):    
 
@@ -117,7 +84,7 @@ if __name__ == "__main__":
     center = verts.mean(0)
     scale = max((verts - center).abs().max(0)[0])
     trg_mesh.offset_verts_(-center)
-    trg_mesh.scale_verts_((1.0 / float(scale)));
+    trg_mesh.scale_verts_((1.0 / float(scale)))
 
 
 
@@ -127,24 +94,28 @@ if __name__ == "__main__":
     num_views = 20
     elev = torch.linspace(0, 360, num_views)
     azim = torch.linspace(-180, 180, num_views)
-    R, T = look_at_view_transform(dist=2.7, elev=elev, azim=azim)
-    cameras = FoVOrthographicCameras(device=device, R=R, T=T)
+    R, T = look_at_view_transform(dist=2.0, elev=elev, azim=azim)
+    cameras = FoVOrthographicCameras(device=device,
+                                        znear=1.0,
+                                        zfar=3.0,
+                                        R=R,
+                                        T=T
+                                    )
 
     # differentiable renderer
-    silhouette_renderer = initialize_silhouette_renderer()
+    renderer = initialize_silhouette_renderer()
 
     # Render Silhouette image, light needed???
     meshes = trg_mesh.extend(num_views)
-    silhouette_images = silhouette_renderer(meshes, cameras=cameras)
-    silhouette_images = silhouette_images[...,3]
-
+    silhouette_images = renderer(meshes, cameras=cameras)
 
     sample_image = silhouette_images[0].detach().cpu().numpy()
-
+    print(sample_image.shape)
     cv2.namedWindow('output', cv2.WINDOW_NORMAL)
 
     cv2.imshow("output", sample_image)
-    cv2.waitKey(1)
+    cv2.waitKey(0)
+
     
     # We initialize the source shape to be a sphere of radius 1.  
     src_mesh = ico_sphere(4, device)
@@ -193,8 +164,8 @@ if __name__ == "__main__":
 
     # Loss weights
     w_silhoutte = 1.0
-    w_edge = 1.0
-    w_normal = 0.01
+    w_edge = 0.1
+    w_normal = 0.1
     w_laplacian = 1.0
     
 
@@ -206,7 +177,7 @@ if __name__ == "__main__":
     model.train()
 
     # The optimizer
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
 
     loop = tqdm(range(Niter))
 
@@ -231,11 +202,10 @@ if __name__ == "__main__":
         # Silhouette Renderer
         loss_silhouette = torch.tensor(0.0, device=device)
         for j in np.random.permutation(num_views).tolist()[:5]:
-            # j = 0
 
             # Differentiable Render            
-            images_predicted = silhouette_renderer(new_src_mesh, cameras=cameras[j]) 
-            predicted_silhouette = images_predicted[..., 3] # only 4th channels is meaningful
+            images_predicted = renderer(new_src_mesh, cameras=cameras[j]) 
+            predicted_silhouette = images_predicted # only 4th channels is meaningful
             
             l_s = ((predicted_silhouette - silhouette_images[j]) ** 2).mean()
             loss_silhouette += l_s / num_views_per_iteration * w_silhoutte
@@ -245,7 +215,7 @@ if __name__ == "__main__":
     
         
         # Weighted sum of the losses
-        sum_loss = 0 + loss_normal + loss_laplacian + loss_silhouette
+        sum_loss = loss_edge + loss_normal + loss_laplacian + loss_silhouette
         
 
         

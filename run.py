@@ -74,7 +74,7 @@ if __name__ == "__main__":
     # the number of different viewpoints from which we want to render the mesh.
 
     # Initialize Cameras
-    num_views = 1
+    num_views = 20
     elev = torch.linspace(0, 360, num_views)
     azim = torch.linspace(-180, 180, num_views)
     R, T = look_at_view_transform(dist=2.0, elev=elev, azim=azim)
@@ -181,8 +181,7 @@ if __name__ == "__main__":
 
         # Silhouette Renderer
         loss_silhouette = torch.tensor(0.0, device=device)
-        for j in np.random.permutation(num_views).tolist()[:1]:
-            j = 0
+        for j in np.random.permutation(num_views).tolist()[:5]:
             
             # Differentiable Render            
             images_predicted = renderer(new_src_mesh, cameras=cameras[j])
