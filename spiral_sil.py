@@ -94,16 +94,16 @@ if __name__ == "__main__":
     num_views = 20
     elev = torch.linspace(0, 360, num_views)
     azim = torch.linspace(-180, 180, num_views)
-    R, T = look_at_view_transform(dist=2.0, elev=elev, azim=azim)
-    cameras = FoVOrthographicCameras(device=device,
-                                        znear=1.0,
-                                        zfar=3.0,
+    R, T = look_at_view_transform(dist=2.7, elev=elev, azim=azim)
+    cameras = FoVPerspectiveCameras(device=device,
+                                        znear=1.5,
+                                        zfar=3.5,
                                         R=R,
                                         T=T
                                     )
 
     # differentiable renderer
-    renderer = initialize_silhouette_renderer()
+    renderer = initialize_depthmap_renderer()
 
     # Render Silhouette image, light needed???
     meshes = trg_mesh.extend(num_views)
@@ -166,7 +166,7 @@ if __name__ == "__main__":
     w_silhoutte = 1.0
     w_edge = 0.1
     w_normal = 0.1
-    w_laplacian = 1.0
+    w_laplacian = 0.001
     
 
     # Direct vertices optimization
@@ -177,7 +177,7 @@ if __name__ == "__main__":
     model.train()
 
     # The optimizer
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9)
 
     loop = tqdm(range(Niter))
 
@@ -201,16 +201,18 @@ if __name__ == "__main__":
 
         # Silhouette Renderer
         loss_silhouette = torch.tensor(0.0, device=device)
-        for j in np.random.permutation(num_views).tolist()[:5]:
-
+        for j in np.random.permutation(num_views).tolist()[:1]:
+            j=0
             # Differentiable Render            
             images_predicted = renderer(new_src_mesh, cameras=cameras[j]) 
             predicted_silhouette = images_predicted # only 4th channels is meaningful
+            gt_image = silhouette_images[j]
             
-            l_s = ((predicted_silhouette - silhouette_images[j]) ** 2).mean()
+            l_s = ((predicted_silhouette - gt_image) ** 2).mean()
             loss_silhouette += l_s / num_views_per_iteration * w_silhoutte
         
-        cv2.imshow("output", predicted_silhouette.detach().cpu().numpy()[0])
+        sample_output = torch.cat([predicted_silhouette[0], gt_image])
+        cv2.imshow("output", sample_output.detach().cpu().numpy())
         cv2.waitKey(1)
     
         

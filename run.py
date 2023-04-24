@@ -77,9 +77,9 @@ if __name__ == "__main__":
     num_views = 20
     elev = torch.linspace(0, 360, num_views)
     azim = torch.linspace(-180, 180, num_views)
-    R, T = look_at_view_transform(dist=2.0, elev=elev, azim=azim)
-    cameras = FoVOrthographicCameras(device=device,
-                                        znear=1.0,
+    R, T = look_at_view_transform(dist=2.7, elev=elev, azim=azim)
+    cameras = FoVPerspectiveCameras(device=device,
+                                        znear=2.7,
                                         zfar=3.0,
                                         R=R,
                                         T=T
@@ -186,11 +186,15 @@ if __name__ == "__main__":
             # Differentiable Render            
             images_predicted = renderer(new_src_mesh, cameras=cameras[j])
             predicted_silhouette = images_predicted # only 4th channels is meaningful
-            
-            l_s = ((predicted_silhouette - silhouette_images[j]) ** 2).mean()
+            gt_silhouette = silhouette_images[j]
+
+            l_s = ((predicted_silhouette - gt_silhouette) ** 2).mean()
             loss_silhouette += l_s / num_views_per_iteration * w_silhoutte
         
-        cv2.imshow("output", predicted_silhouette.detach().cpu().numpy()[0])
+        
+        sample_output = torch.cat([predicted_silhouette[0], gt_silhouette])
+
+        cv2.imshow("output", sample_output.detach().cpu().numpy())
         cv2.waitKey(1)
     
         

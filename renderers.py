@@ -55,7 +55,7 @@ class DepthShader(ShaderBase):
 
         # normalize zbuf using zfar and znear
         zbuf = (zfar - zbuf)/(zfar - znear)
-        zbuf[background_mask] = 0.0
+        zbuf[background_mask] = -1.0
 
         return zbuf
 
