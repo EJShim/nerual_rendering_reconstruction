@@ -62,3 +62,11 @@ def make_actor(polydata):
 #     mesh.textures = textures
     
 #     return mesh
+
+
+def read_polydata(path):
+    reader = vtk.vtkOBJReader()
+    reader.SetFileName(path)
+    reader.Update()
+
+    return reader.GetOutput()

@@ -39,9 +39,13 @@ class DepthShader(ShaderBase):
         # unsqueeze b, 1, 1, 1
         zfar = kwargs.get("zfar", getattr(cameras, "zfar", 100.0))
         znear = kwargs.get("znear", getattr(cameras, "znear", 0.1))
-        zfar = zfar.unsqueeze(1).unsqueeze(1).unsqueeze(1)
-        znear = znear.unsqueeze(1).unsqueeze(1).unsqueeze(1)
-
+        
+        #TODO : change this to batch-wise computation in the future
+        zfar = zfar.unsqueeze(-1).unsqueeze(-1)
+        znear = znear.unsqueeze(-1).unsqueeze(-1)
+        
+        # zfar = zfar[0]
+        # znear = znear[0]
         
         cameras = kwargs['cameras']
         # not sure this can be dist, cameras' focal points always origin?
@@ -49,13 +53,21 @@ class DepthShader(ShaderBase):
 
         
 
-        background_mask = fragments.pix_to_face[..., 0:1] < 0
-        zbuf = fragments.zbuf[..., 0:1].clone()
+        background_mask = fragments.pix_to_face[..., 0] < 0
+        zbuf = fragments.zbuf[..., 0].clone()
 
-
-        # normalize zbuf using zfar and znear
+        # # normalize zbuf using zfar and znear
         zbuf = (zfar - zbuf)/(zfar - znear)
-        zbuf[background_mask] = -1.0
+        zbuf[background_mask] = 0.0
+
+
+        # zbuf[background_mask] = zfar
+
+        # # previous
+        # zbuf = -zbuf
+        # zbuf += zfar
+        # zbuf /= dist
+
 
         return zbuf
 
