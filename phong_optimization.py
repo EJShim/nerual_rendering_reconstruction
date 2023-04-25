@@ -121,14 +121,17 @@ if __name__ == "__main__":
     meshes = trg_mesh.extend(num_views)
     silhouette_images = sil_renderer(meshes, cameras=cameras)
     depth_images = depth_renderer(meshes, cameras = cameras)
-
+    print(depth_images.shape)
+    exit()
 
     sample_im = torch.cat((silhouette_images, depth_images), dim=1)
     sample_image = sample_im[0].detach().cpu().numpy()
     cv2.namedWindow('output', cv2.WINDOW_NORMAL)
 
     cv2.imshow("output", sample_image)
-    cv2.waitKey(1)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    exit()
 
     
     
