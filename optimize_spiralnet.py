@@ -17,6 +17,7 @@ from pytorch3d.loss import (
     mesh_laplacian_smoothing, 
     mesh_normal_consistency,
 )
+import tqdm
 
 device = torch.device("cpu")
 
@@ -59,6 +60,7 @@ if __name__ == "__main__":
     ren = vtk.vtkRenderer()
     renWin.AddRenderer(ren)
 
+    # Read Target Polydata
     reader = vtk.vtkOBJReader()
     reader.SetFileName("data/cow_mesh/cow.obj")
     reader.Update()
@@ -69,11 +71,11 @@ if __name__ == "__main__":
 
     # topology for model training
     template_mesh = ico_sphere(4)
+    template_poly = mesh2polydata(template_mesh)
+    actor = make_actor(template_poly)
+    ren.AddActor(actor)
 
-    template_poly = mesh2polydata(template_mesh)    
-    # actor = make_actor(template_poly)
-    # ren.AddActor(actor)
-
+    # Initialize Model
     model = initialize_model(template_poly)
     model.train()
 
@@ -85,7 +87,7 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=0.50)
 
     # Weight for the chamfer loss
-    w_chamfer = 1.0 
+    w_chamfer = 0.001
     # Weight for mesh edge loss
     w_edge = 1.0 
     # Weight for mesh normal consistency
@@ -93,20 +95,28 @@ if __name__ == "__main__":
     # Weight for mesh laplacian smoothing
     w_laplacian = 0.1 
 
-    std = 0.1
-    mean = template_mesh.verts_packed()
+    # std = 0.1
+    # mean = template_mesh.verts_packed()
 
-    for i in range(50):
+    iren.InvokeEvent(vtk.vtkCommand.StartEvent, None)
+    iren.Initialize()
+    
+
+
+    ren.ResetCamera()
+    renWin.Render()
+
+    for i in tqdm.tqdm(range(500)):
         pred = model(sample_input)
-        # pred_mesh = Meshes(verts=pred, faces=template_mesh.faces_packed().unsqueeze(0))
-        pred_mesh = template_mesh.offset_verts(pred[0])
+        pred_mesh = Meshes(verts=pred, faces=template_mesh.faces_packed().unsqueeze(0))
+        # pred_mesh = template_mesh.offset_verts(pred[0])
         # Chamfer Distance between target mesh and pred mesh
         # We sample 5k points from the surface of each mesh 
         sample_trg = sample_points_from_meshes(trg_mesh, 5000)
         sample_src = sample_points_from_meshes(pred_mesh, 5000)
         
         # We compare the two sets of pointclouds by computing (a) the chamfer loss
-        loss_chamfer, _ = chamfer_distance(sample_trg, sample_src)
+        loss_chamfer, _ = chamfer_distance(sample_src, sample_trg)
 
 
         # and (b) the edge length of the predicted mesh
@@ -124,22 +134,14 @@ if __name__ == "__main__":
         loss.backward()
         optimizer.step()
 
-        print(loss)
 
-    # Set Initial Output Sphere???
-    model.eval()
-    pred_mesh = template_mesh.offset_verts(model(sample_input)[0])
-    sample_output = pred_mesh.verts_packed()
+        # Set Initial Output Sphere???
+        sample_output = pred_mesh.verts_packed()        
+        sample_output = sample_output.detach().cpu().numpy()
+        template_poly.GetPoints().SetData( numpy_support.numpy_to_vtk( sample_output ))
+        renWin.Render()
+        iren.ProcessEvents()
 
-    # Visualize Output
-    sample_output = sample_output[0].detach().cpu().numpy()
-    output_poly = vtk.vtkPolyData()
-    output_poly.DeepCopy(template_poly)
-    output_poly.GetPoints().SetData( numpy_support.numpy_to_vtk( sample_output ))
-    output_actor = make_actor(output_poly)
-    output_actor.GetProperty().SetColor(1,0,0)
-    ren.AddActor(output_actor)
-
-    ren.ResetCamera()
+        
     renWin.Render()
     iren.Start()

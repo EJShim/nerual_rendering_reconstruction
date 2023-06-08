@@ -147,9 +147,9 @@ if __name__ == "__main__":
 
     # Loss weights
     w_silhoutte = 1.0
-    w_edge = 1.0
+    w_edge = 0.1
     w_normal = 0.01
-    w_laplacian = 1.0
+    w_laplacian = 0.1
     
 
     # Direct vertices optimization
