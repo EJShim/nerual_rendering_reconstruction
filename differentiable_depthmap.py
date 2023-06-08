@@ -42,6 +42,9 @@ class NeuralDepthRenderer():
     def set_data(self, V, F):
         self.input = Meshes(verts=[V], faces=[F])
 
+    def set_mesh(self, mesh):
+        self.input = mesh
+
     def render(self):
         if self.input == None:            
             return

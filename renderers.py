@@ -59,14 +59,7 @@ class DepthShader(ShaderBase):
         # # normalize zbuf using zfar and znear
         zbuf = (zfar - zbuf)/(zfar - znear)
         zbuf[background_mask] = 0.0
-
-
-        # zbuf[background_mask] = zfar
-
-        # # previous
-        # zbuf = -zbuf
-        # zbuf += zfar
-        # zbuf /= dist
+        zbuf = torch.relu(zbuf)
 
 
         return zbuf
