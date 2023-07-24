@@ -204,26 +204,21 @@ if __name__ == "__main__":
         loss_laplacian = mesh_laplacian_smoothing(new_src_mesh, method="uniform") * w_laplacian
 
 
-        # Silhouette Renderer
-        loss_silhouette = torch.tensor(0.0, device=device)
-        loss_depth = torch.tensor(0.0, device=device)
-        for j in np.random.permutation(num_views).tolist()[:5]:
-            # j = 0
-            # Differentiable Render            
-            neural_renderer.set_mesh(new_src_mesh)
-            dep_predicted = neural_renderer.render()
-            # dep_predicted = depth_renderer(new_src_mesh, cameras=cameras[j])
-            # l1 depth loss
-            l_d = torch.nn.functional.l1_loss(dep_predicted, depth_images[j]) 
-            loss_depth += l_d / num_views_per_iteration * w_depth
+        # Differentiable Render            
+        neural_renderer.set_mesh(new_src_mesh)            
+        dep_predicted = neural_renderer.render()
+
+
+        l_d = torch.nn.functional.l1_loss(dep_predicted, depth_images[0]) 
+        loss_depth = l_d / num_views_per_iteration * w_depth
         
-        sample_output = torch.cat([dep_predicted[0], depth_images[j]])
+        sample_output = torch.cat([dep_predicted[0], depth_images[0]])
         cv2.imshow("output", sample_output.detach().cpu().numpy())
         cv2.waitKey(1)
     
         
         # Weighted sum of the losses
-        sum_loss = loss_edge + loss_normal + loss_laplacian + loss_silhouette + loss_depth
+        sum_loss = loss_edge + loss_normal + loss_laplacian + loss_depth
         
 
         
